@@ -1,4 +1,3 @@
-/*
 .main {
     x: int = 60
     $0: int;
@@ -8,8 +7,8 @@
     print $1
     halt
 }
-*/
 
+/*
 .main {
     $0: int = 20
     $1: int;
@@ -24,3 +23,4 @@
     print $3
     halt
 }
+*/

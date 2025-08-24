@@ -1,0 +1,16 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/fiber
+fiber.so
+fiber.dylib
+fiber.dll
+fiber.a
+fiber.lib
+fiber-test-*
+*.exe
+*.pdb
+*.o
+*.obj
+*.lst

@@ -1,3 +1,0 @@
-# The Fasm assembler
-
-...

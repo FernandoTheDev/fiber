@@ -14,7 +14,9 @@ enum NodeKind
     StringLiteral,
     VariableDeclaration,
     MainSection,
-    Instruction
+    Instruction,
+    FnDeclaration,
+    CallFn,
 }
 
 abstract class Node
@@ -71,7 +73,7 @@ class MainSection : Node
         {
             n.print(ident + 4);
         }
-        writeln(strRepeat(" ", ident) ~ "]");
+        writeln(strRepeat(" ", ident) ~ "],");
     }
 }
 
@@ -180,6 +182,91 @@ class Instruction : Node
         foreach (Node n; args)
         {
             n.print(ident + 4);
+        }
+        writeln(strRepeat(" ", ident) ~ "],");
+    }
+}
+
+// $0
+struct FnArg
+{
+    string name;
+    Location loc;
+}
+
+class FnDeclaration : Node
+{
+    string name;
+    Node[] body;
+    FnArg[] args;
+
+    this(string name, FnArg[] args, Node[] body, string type, Location loc)
+    {
+        this.kind = NodeKind.FnDeclaration;
+        this.name = name;
+        this.args = args;
+        this.body = body;
+        this.type = type;
+        this.value = null;
+        this.loc = loc;
+    }
+
+    override void print(ulong ident)
+    {
+        writeln(strRepeat(" ", ident) ~ "» FnDeclaration");
+        writefln(strRepeat(" ", ident) ~ "Name: %s", to!string(name));
+        writefln(strRepeat(" ", ident) ~ "Type: %s", to!string(type));
+        writefln(strRepeat(" ", ident) ~ "Args: [");
+        foreach (FnArg arg; args)
+        {
+            writefln(strRepeat(" ", ident + 4) ~ "Name: " ~ arg.name);
+            writeln(strRepeat(" ", ident + 4) ~ strRepeat("-", 10)); // what the hell is that?
+        }
+        writefln(strRepeat(" ", ident) ~ "],");
+        writeln(strRepeat(" ", ident) ~ "Body: [");
+        foreach (Node n; body)
+        {
+            n.print(ident + 4);
+        }
+        writeln(strRepeat(" ", ident) ~ "]");
+    }
+}
+
+// int $0
+struct CallArg
+{
+    string name;
+    string type;
+    Location loc;
+    int addr;
+}
+
+// call func(int $0, int $1)
+class CallFn : Node
+{
+    string name;
+    CallArg[] args;
+
+    this(string name, CallArg[] args, Location loc)
+    {
+        this.kind = NodeKind.CallFn;
+        this.type = "?";
+        this.name = name;
+        this.args = args;
+        this.value = null;
+        this.loc = loc;
+    }
+
+    override void print(ulong ident)
+    {
+        writeln(strRepeat(" ", ident) ~ "» CallFn");
+        writefln(strRepeat(" ", ident) ~ "Name: %s", to!string(name));
+        writefln(strRepeat(" ", ident) ~ "Args: [");
+        foreach (CallArg arg; args)
+        {
+            writefln(strRepeat(" ", ident + 4) ~ "Name: " ~ arg.name);
+            writefln(strRepeat(" ", ident + 4) ~ "Type: " ~ arg.type);
+            writeln(strRepeat(" ", ident + 4) ~ strRepeat("-", 10)); // what the hell is that?
         }
         writeln(strRepeat(" ", ident) ~ "]");
     }

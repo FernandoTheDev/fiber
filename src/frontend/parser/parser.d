@@ -1,5 +1,6 @@
 module frontend.parser.parser;
 
+import std.typecons;
 import std.format;
 import std.stdio;
 import std.conv;
@@ -25,10 +26,13 @@ private:
 
         switch (token.kind)
         {
+            // Literals
         case TokenKind.Int:
             return new IntLiteral(token.value, token.loc);
         case TokenKind.String:
             return new StringLiteral(token.value, token.loc);
+
+            // ID's
         case TokenKind.Dollar:
             Token name = this.consume(TokenKind.Int, "Expected a int (0..9) to name of temp var.");
             if (this.peek()
@@ -38,8 +42,13 @@ private:
         case TokenKind.Identifier:
             if (this.peek()
                 .kind == TokenKind.Colon)
-                return this.parseVarDeclaration(token);
+                return this.parseVarDeclaration(token, false);
+            if (this.peek()
+                .kind == TokenKind.LParen)
+                return this.parseCallFn();
             return new Identifier(token.value.get!string, token.loc);
+
+            // Instructions
         case TokenKind.Print:
             // print <value>
             Node arg = this.parseExpression(Precedence.LOWEST);
@@ -54,6 +63,13 @@ private:
             this.consume(TokenKind.Comma, "Expected ',' to separate the statement arguments.");
             args ~= this.parseExpression(Precedence.LOWEST);
             return new Instruction("store", args, token.loc);
+        case TokenKind.Load:
+            // load <target>, <addr>
+            Node[] args;
+            args ~= this.parseExpression(Precedence.LOWEST);
+            this.consume(TokenKind.Comma, "Expected ',' to separate the statement arguments.");
+            args ~= this.parseExpression(Precedence.LOWEST);
+            return new Instruction("load", args, token.loc);
         case TokenKind.Add:
             // add <target>, <x>, <y>
             Node[] args;
@@ -63,11 +79,96 @@ private:
             this.consume(TokenKind.Comma, "Expected ',' to separate the statement arguments.");
             args ~= this.parseExpression(Precedence.LOWEST);
             return new Instruction("add", args, token.loc);
+        case TokenKind.Ret:
+            // ret <value> ;
+            Node[] args = [];
+            if (this.match([TokenKind.SemiColon]))
+                return new Instruction("ret", args, token.loc);
+            Node arg = this.parseExpression(Precedence.LOWEST);
+            return new Instruction("ret", args ~ arg, token.loc);
+        case TokenKind.Call:
+            // call fn(), <var>
+            Node[] args;
+            args ~= this.parseExpression(Precedence.LOWEST);
+            this.consume(TokenKind.Comma, "Expected ',' to separate the statement arguments.");
+            args ~= this.parseExpression(Precedence.LOWEST);
+            return new Instruction("call", args, token.loc);
+
+            // Keywords
+        case TokenKind.Fn:
+            return this.parseFnDeclaration();
+
+            // Section
         case TokenKind.Dot:
             return this.parseSection();
         default:
             throw new Exception("Noo prefix parse function for " ~ to!string(token));
         }
+    }
+
+    Node parseCallFn()
+    {
+        // Token name = this.consume(TokenKind.Identifier, "Expected identifier to name of function.");
+        Token name = this.previous();
+        this.consume(TokenKind.LParen, "Expected '(' after function name.");
+        CallArg[] args = this.parseCallArguments();
+        this.consume(TokenKind.RParen, "Expected ')' after function arguments.");
+        return new CallFn(name.value.get!string, args, name.loc);
+    }
+
+    CallArg[] parseCallArguments()
+    {
+        CallArg[] args;
+        while (this.peek().kind != TokenKind.RParen && !this.isAtEnd())
+        {
+            Token type = this.consume(TokenKind.Identifier, "Expected identifier to type name.");
+            Node argName = this.parseExpression(Precedence.LOWEST); // Identifier
+            if (argName.kind != NodeKind.Identifier)
+            {
+                throw new Exception(format("The argument should be an identifier but is a '%s'", argName
+                        .kind));
+            }
+            args ~= CallArg(argName.value.get!string, type.value.get!string, argName.loc);
+            this.match([TokenKind.Comma]);
+        }
+        return args;
+    }
+
+    Node parseFnDeclaration()
+    {
+        Token name = this.consume(TokenKind.Identifier, "Expected identifier to function name.");
+
+        this.consume(TokenKind.LParen, "Expected '(' after function name.");
+        FnArg[] args = this.parseFnArguments();
+        this.consume(TokenKind.RParen, "Expected ')' after function arguments.");
+
+        Token type = this.consume(TokenKind.Identifier, "Expected identifier to type of function.");
+        this.consume(TokenKind.LBRace, "Expected '{' after function type.");
+
+        Node[] body;
+        while (this.peek().kind != TokenKind.RBrace && !this.isAtEnd())
+        {
+            body ~= this.parseExpression(Precedence.LOWEST);
+        }
+        this.consume(TokenKind.RBrace, "Expected '}' after function.");
+        return new FnDeclaration(name.value.get!string, args, body, type.value.get!string, name.loc);
+    }
+
+    FnArg[] parseFnArguments()
+    {
+        FnArg[] args;
+        while (this.peek().kind != TokenKind.RParen && !this.isAtEnd())
+        {
+            Node argName = this.parseExpression(Precedence.LOWEST); // Identifier
+            if (argName.kind != NodeKind.Identifier)
+            {
+                throw new Exception(format("The argument should be an identifier but is a '%s'", argName
+                        .kind));
+            }
+            args ~= FnArg(argName.value.get!string, argName.loc);
+            this.match([TokenKind.Comma]);
+        }
+        return args;
     }
 
     Node parseVarDeclaration(Token name, bool temp = false)
@@ -76,6 +177,7 @@ private:
         Node value;
         this.consume(TokenKind.Colon, "..");
         Token type = this.consume(TokenKind.Identifier, "Expected identifier to name of type.");
+
         if (this.match([TokenKind.SemiColon]))
         {
             initialized = false;

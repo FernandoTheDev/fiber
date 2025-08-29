@@ -9,6 +9,10 @@ enum TokenKind
     Print,
     Halt,
     Store,
+    Load,
+    Ret,
+    Call,
+    Fn,
 
     Identifier, // id
 

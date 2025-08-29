@@ -14,3 +14,4 @@ fiber-test-*
 *.o
 *.obj
 *.lst
+*.bc

@@ -25,6 +25,10 @@ private:
         keywords["print"] = TokenKind.Print;
         keywords["halt"] = TokenKind.Halt;
         keywords["store"] = TokenKind.Store;
+        keywords["load"] = TokenKind.Load;
+        keywords["ret"] = TokenKind.Ret;
+        keywords["call"] = TokenKind.Call;
+        keywords["fn"] = TokenKind.Fn;
     }
 
     void initializeSymbols()

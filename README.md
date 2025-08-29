@@ -75,6 +75,27 @@ The following code is compiled and executed by Fiber.
 }
 ```
 
+With function calls:
+
+```llvm
+.main
+{
+    $0: int;
+    main_x: int = 60
+    main_y: int = 9
+
+    call sum(int main_x, int main_y), $0
+    print $0
+    halt
+}
+
+fn sum (sum_x, sum_y) int {
+    sum_0: int;
+    add sum_0, sum_x, sum_y
+    ret sum_0
+}
+```
+
 Compile and run
 
 ```bash

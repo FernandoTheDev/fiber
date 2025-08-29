@@ -7,6 +7,7 @@ import std.format;
 import std.string;
 import backend.codegen.api;
 import middle.memory.memory;
+import middle.semantic : FnMemoryAlloc;
 import frontend.parser.ast;
 
 class Builder
@@ -14,6 +15,8 @@ class Builder
 private:
     FiberMemory mem;
     FiberBuilder api;
+    FnMemoryAlloc[string] functionsMemory;
+    string functionName;
 
     int getAddr(Node node)
     {
@@ -21,10 +24,11 @@ private:
         {
         case NodeKind.Identifier:
             string id = node.value.get!string;
-            // writeln(id);
-            // writeln(this.mem.pointers);
-            // writeln("mem ", id, ": ", this.mem.pointers[id]);
-            return this.mem.pointers[id];
+            // writeln("ID ", id);
+            // writeln("CONTEXT ", this.mem.getCurrentContext());
+            // writeln("POINTER ", this.mem.getContextInfoCurrent());
+            // writeln("POINTER MEMORY ", mem.getContextInfoCurrent().pointers);
+            return this.mem.getContextInfoCurrent().pointers[id];
         case NodeKind.IntLiteral:
             return node.value.get!int;
         default:
@@ -35,6 +39,8 @@ private:
 
     void generateMainSection(MainSection node)
     {
+        mem.loadContext("global");
+        this.api.label("main");
         for (long i; i < node.body.length; i++)
         {
             this.generate(node.body[i]);
@@ -47,6 +53,20 @@ private:
         {
             this.generate(node.body[i]);
         }
+    }
+
+    void generateFnDeclaration(FnDeclaration node)
+    {
+        // TODO: corrigir isso
+        mem.loadContext("ctx_0");
+        functionName = node.name;
+        this.api.label(node.name);
+        for (long i; i < node.body.length; i++)
+        {
+            this.generate(node.body[i]);
+        }
+        functionName = "";
+        mem.loadContext("global");
     }
 
     void generateInstruction(Instruction node)
@@ -63,14 +83,34 @@ private:
             int value = this.getAddr(node.args[1]);
             this.api.store(target, value);
             break;
+        case "load":
+            int target = this.getAddr(node.args[0]);
+            int value = this.getAddr(node.args[1]);
+            this.api.load(target, value);
+            break;
         case "add":
             int target = this.getAddr(node.args[0]);
             int x = this.getAddr(node.args[1]);
             int y = this.getAddr(node.args[2]);
             this.api.add(target, x, y);
             break;
+        case "call":
+            CallFn n = cast(CallFn) node.args[0];
+            // carrega os argumentos
+            FnMemoryAlloc fn = functionsMemory[n.name];
+            for (long i; i < fn.callArgs.length; i++)
+            {
+                api.load(fn.fnArgs[i], fn.callArgs[i]);
+            }
+            this.api.call(n.name);
+            break;
         case "halt":
             this.api.halt();
+            break;
+        case "ret":
+            FnMemoryAlloc fn = functionsMemory[functionName];
+            api.load(fn.callRet, fn.fnRet);
+            this.api.ret();
             break;
         default:
             throw new Exception(format("Instrução desconhecida: %s", instr));
@@ -78,8 +118,9 @@ private:
     }
 
 public:
-    this(FiberMemory mem)
+    this(FiberMemory mem, FnMemoryAlloc[string] memory)
     {
+        this.functionsMemory = memory;
         this.mem = mem;
         this.api = new FiberBuilder();
     }
@@ -96,6 +137,9 @@ public:
             break;
         case NodeKind.MainSection:
             this.generateMainSection(cast(MainSection) node);
+            break;
+        case NodeKind.FnDeclaration:
+            this.generateFnDeclaration(cast(FnDeclaration) node);
             break;
         case NodeKind.Identifier:
         case NodeKind.VariableDeclaration:

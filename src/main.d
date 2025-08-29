@@ -34,7 +34,7 @@ int[] compileSource(string file, string source, FiberMemory mem, bool debugMode 
     Token[] tokens = lexer.tokenize();
     if (debugMode)
     {
-        writeln("Tokens: ", tokens);
+        // writeln("Tokens: ", tokens);
     }
 
     Parser parser = new Parser(tokens);
@@ -49,7 +49,7 @@ int[] compileSource(string file, string source, FiberMemory mem, bool debugMode 
     Semantic semantic = new Semantic(mem);
     Program newProg = cast(Program) semantic.analyzeNode(prog);
 
-    Builder codegen = new Builder(mem);
+    Builder codegen = new Builder(mem, semantic.functionsMemory);
     codegen.generate(newProg);
     int[] byteCode = codegen.build();
 
@@ -67,7 +67,7 @@ int[] compileSource(string file, string source, FiberMemory mem, bool debugMode 
     return byteCode;
 }
 
-void executeProgram(int[] byteCode, int[MEMORY_BUFFER] memBuffer, bool debugMode = false)
+void executeProgram(int[] byteCode, int[] memBuffer, bool debugMode = false)
 {
     FiberVM vm = new FiberVM(byteCode, memBuffer);
     if (debugMode)
@@ -153,7 +153,7 @@ int[] decompressZeros(string[] compressedData, int expectedSize)
     return result;
 }
 
-void saveProgram(int[] byteCode, int[MEMORY_BUFFER] memory, string filename)
+void saveProgram(int[] byteCode, int[] memory, string filename)
 {
     string[] output;
 

@@ -23,20 +23,21 @@ enum OpCode
     CALL,
     HALT,
 
-    STR_ALLOC, // Aloca string no heap
-    STR_LOAD, // Carrega string literal
-    STR_CONCAT, // Concatena duas strings
-    STR_LEN, // Obtém comprimento da string
-    STR_CMP, // Compara duas strings
-    STR_PRINT, // Imprime string
-    STR_INPUT // Lê string do usuário
+    // String
+    STR_ALLOC,
+    STR_LOAD,
+    STR_CONCAT,
+    STR_LEN,
+    STR_CMP,
+    STR_PRINT,
+    STR_INPUT,
 }
 
 class FiberVM
 {
 private:
     int[] program;
-    int[MEMORY_BUFFER] memory;
+    int[] memory;
     int[] stack;
     uint pointer;
 
@@ -57,6 +58,7 @@ private:
     {
         if (stack.length == 0)
         {
+            throw new Exception("Error: Empty stack!");
             writeln("Error: Empty stack!");
             return 0;
         }
@@ -122,7 +124,7 @@ private:
     }
 
 public:
-    this(int[] prog, int[MEMORY_BUFFER] mem)
+    this(int[] prog, int[] mem)
     {
         FiberBuilder.validateAndExtract(prog, this.program);
         stack = [];
@@ -329,39 +331,3 @@ public:
         return addStringConstant(literal);
     }
 }
-
-// void main()
-// {
-//     auto mem = new int[MEMORY_BUFFER];
-
-//     // Programa de exemplo que trabalha com strings
-//     FiberVM vm = new FiberVM([], mem);
-
-//     // Adicionar constantes de string
-//     int helloId = vm.getStringConstantId("Hello");
-//     int worldId = vm.getStringConstantId(" World!");
-//     int nameId = vm.getStringConstantId("Fiber");
-
-//     int[] prog = [
-//         // Carregar "Hello" em R0
-//         OpCode.STR_LOAD, 0, helloId,
-
-//         // Carregar " World!" em R1  
-//         OpCode.STR_LOAD, 1, worldId,
-
-//         // Concatenar R0 + R1, resultado em R2
-//         OpCode.STR_CONCAT, 2, 0, 1,
-
-//         // Imprimir resultado
-//         OpCode.STR_PRINT, 2,
-
-//         // Obter comprimento da string em R2, resultado em R3
-//         OpCode.STR_LEN, 3, 2,
-//         OpCode.PRINT, 3, // Imprimir comprimento
-
-//         OpCode.HALT
-//     ];
-
-//     vm.program = prog;
-//     vm.run();
-// }

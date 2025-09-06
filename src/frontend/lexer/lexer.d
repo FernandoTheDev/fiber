@@ -25,10 +25,14 @@ private:
         keywords["print"] = TokenKind.Print;
         keywords["halt"] = TokenKind.Halt;
         keywords["store"] = TokenKind.Store;
+        // keywords["iload"] = TokenKind.Iload;
         keywords["load"] = TokenKind.Load;
+        // keywords["sload"] = TokenKind.Sload;
         keywords["ret"] = TokenKind.Ret;
         keywords["call"] = TokenKind.Call;
         keywords["fn"] = TokenKind.Fn;
+        keywords["input"] = TokenKind.Input;
+        keywords["sconc"] = TokenKind.StrConcat;
     }
 
     void initializeSymbols()
@@ -219,8 +223,11 @@ private:
             advance();
         }
 
+        TokenKind type = TokenKind.Int;
+
         if (!isAtEnd() && peek() == '.' && isDigit(peek(1)))
         {
+            type = TokenKind.Float;
             advance(); // Consome o '.'
             while (!isAtEnd() && isDigit(peek()))
             {
@@ -229,7 +236,7 @@ private:
         }
 
         string numberStr = source[start .. offset];
-        addToken(TokenKind.Int, Variant(numberStr), start, numberStr.length);
+        addToken(type, Variant(numberStr), start, numberStr.length);
     }
 
     void lexSymbol(char ch)

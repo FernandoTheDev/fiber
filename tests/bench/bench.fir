@@ -7,13 +7,13 @@
     halt
 }
 
-fn sum (int x, int y) int {
+fn sum (x, y) int {
     result: int;
     call other_sum(int x, int y), result
     ret result
 }
 
-fn other_sum (int x, int y) int {
+fn other_sum (x, y) int {
     $0: int;
     add $0, x, y
     ret $0

@@ -29,6 +29,8 @@ private:
             // Literals
         case TokenKind.Int:
             return new IntLiteral(token.value, token.loc);
+        case TokenKind.Float:
+            return new FloatLiteral(token.value, token.loc);
         case TokenKind.String:
             return new StringLiteral(token.value, token.loc);
 
@@ -79,6 +81,15 @@ private:
             this.consume(TokenKind.Comma, "Expected ',' to separate the statement arguments.");
             args ~= this.parseExpression(Precedence.LOWEST);
             return new Instruction("add", args, token.loc);
+        case TokenKind.StrConcat:
+            // sconc <target>, <x>, <y>
+            Node[] args;
+            args ~= this.parseExpression(Precedence.LOWEST);
+            this.consume(TokenKind.Comma, "Expected ',' to separate the statement arguments.");
+            args ~= this.parseExpression(Precedence.LOWEST);
+            this.consume(TokenKind.Comma, "Expected ',' to separate the statement arguments.");
+            args ~= this.parseExpression(Precedence.LOWEST);
+            return new Instruction("sconc", args, token.loc);
         case TokenKind.Ret:
             // ret <value> ;
             Node[] args = [];
@@ -86,12 +97,17 @@ private:
                 return new Instruction("ret", args, token.loc);
             Node arg = this.parseExpression(Precedence.LOWEST);
             return new Instruction("ret", args ~ arg, token.loc);
+        case TokenKind.Input:
+            // ret <value> ;
+            Node[] args = [];
+            Node arg = this.parseExpression(Precedence.LOWEST);
+            return new Instruction("input", args ~ arg, token.loc);
         case TokenKind.Call:
             // call fn(), <var>
             Node[] args;
             args ~= this.parseExpression(Precedence.LOWEST);
-            this.consume(TokenKind.Comma, "Expected ',' to separate the statement arguments.");
-            args ~= this.parseExpression(Precedence.LOWEST);
+            if (this.match([TokenKind.Comma]))
+                args ~= this.parseExpression(Precedence.LOWEST);
             return new Instruction("call", args, token.loc);
 
             // Keywords
@@ -159,13 +175,15 @@ private:
         FnArg[] args;
         while (this.peek().kind != TokenKind.RParen && !this.isAtEnd())
         {
+            Token type = this.consume(TokenKind.Identifier, "Expected identifier to type name.");
             Node argName = this.parseExpression(Precedence.LOWEST); // Identifier
             if (argName.kind != NodeKind.Identifier)
             {
                 throw new Exception(format("The argument should be an identifier but is a '%s'", argName
                         .kind));
             }
-            args ~= FnArg(argName.value.get!string, argName.loc);
+            args ~= FnArg(argName.value.get!string, type.value.get!string, argName
+                    .loc);
             this.match([TokenKind.Comma]);
         }
         return args;

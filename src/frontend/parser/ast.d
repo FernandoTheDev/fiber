@@ -11,6 +11,7 @@ enum NodeKind
     Program,
     Identifier,
     IntLiteral,
+    FloatLiteral,
     StringLiteral,
     VariableDeclaration,
     MainSection,
@@ -111,6 +112,23 @@ class IntLiteral : Node
     }
 }
 
+class FloatLiteral : Node
+{
+    this(Variant value, Location loc)
+    {
+        this.kind = NodeKind.FloatLiteral;
+        this.type = "float";
+        this.value = to!float(value.get!string);
+        this.loc = loc;
+    }
+
+    override void print(ulong ident)
+    {
+        writeln(strRepeat(" ", ident) ~ "» FloatLiteral");
+        writefln(strRepeat(" ", ident) ~ "Value: %s", value.get!float);
+    }
+}
+
 class StringLiteral : Node
 {
     this(Variant value, Location loc)
@@ -191,6 +209,7 @@ class Instruction : Node
 struct FnArg
 {
     string name;
+    string type;
     Location loc;
 }
 

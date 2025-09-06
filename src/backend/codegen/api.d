@@ -3,23 +3,7 @@ module backend.codegen.api;
 import std.stdio;
 import std.conv;
 import std.format;
-
-enum OpCode
-{
-    MOV,
-    ADD,
-    SUB,
-    DIV,
-    MUL,
-    LOAD,
-    STORE,
-    PRINT,
-    INPUT,
-    RET,
-    JMP,
-    CALL,
-    HALT
-}
+import backend.vm.vm : OpCode;
 
 // Classe principal para construção de código
 class FiberBuilder
@@ -93,6 +77,55 @@ public:
         instructions ~= addr;
         instructions ~= address;
         return this;
+    }
+
+    void strLoad(int address, int stringId)
+    {
+        instructions ~= OpCode.STR_LOAD;
+        instructions ~= address;
+        instructions ~= stringId;
+    }
+
+    void strPrint(int address)
+    {
+        instructions ~= OpCode.STR_PRINT;
+        instructions ~= address;
+    }
+
+    void strInput(int address)
+    {
+        instructions ~= OpCode.STR_INPUT;
+        instructions ~= address;
+    }
+
+    void strAlloc(int address, int stringId)
+    {
+        instructions ~= OpCode.STR_ALLOC;
+        instructions ~= address;
+        instructions ~= stringId;
+    }
+
+    void strConcat(int result, int str1, int str2)
+    {
+        instructions ~= OpCode.STR_CONCAT;
+        instructions ~= result;
+        instructions ~= str1;
+        instructions ~= str2;
+    }
+
+    void strLen(int result, int stringAddr)
+    {
+        instructions ~= OpCode.STR_LEN;
+        instructions ~= result;
+        instructions ~= stringAddr;
+    }
+
+    void strCmp(int result, int str1, int str2)
+    {
+        instructions ~= OpCode.STR_CMP;
+        instructions ~= result;
+        instructions ~= str1;
+        instructions ~= str2;
     }
 
     FiberBuilder print(int addr)
@@ -259,7 +292,7 @@ public:
             OpCode op = cast(OpCode) instr[pos];
             result ~= format("  %04X: ", pos);
 
-            final switch (op)
+            switch (op)
             {
             case OpCode.HALT:
                 result ~= "HALT\n";
@@ -276,8 +309,18 @@ public:
                 pos += 2;
                 break;
 
+            case OpCode.STR_PRINT:
+                result ~= format("STR_PRINT 0x%d\n", instr[pos + 1]);
+                pos += 2;
+                break;
+
             case OpCode.INPUT:
                 result ~= format("INPUT 0x%d\n", instr[pos + 1]);
+                pos += 2;
+                break;
+
+            case OpCode.STR_INPUT:
+                result ~= format("STR_INPUT 0x%d\n", instr[pos + 1]);
                 pos += 2;
                 break;
 
@@ -303,6 +346,12 @@ public:
                 pos += 3;
                 break;
 
+            case OpCode.STR_LOAD:
+                result ~= format("STR_LOAD 0x%d, 0x%X\n",
+                    instr[pos + 1], instr[pos + 2]);
+                pos += 3;
+                break;
+
             case OpCode.STORE:
                 result ~= format("STORE 0x%d, 0x%X\n",
                     instr[pos + 1], instr[pos + 2]);
@@ -311,6 +360,12 @@ public:
 
             case OpCode.ADD:
                 result ~= format("ADD 0x%d, 0x%d, 0x%d\n",
+                    instr[pos + 1], instr[pos + 2], instr[pos + 3]);
+                pos += 4;
+                break;
+
+            case OpCode.STR_CONCAT:
+                result ~= format("STR_CONCAT 0x%d, 0x%d, 0x%d\n",
                     instr[pos + 1], instr[pos + 2], instr[pos + 3]);
                 pos += 4;
                 break;
@@ -331,6 +386,8 @@ public:
                 result ~= format("DIV 0x%d, 0x%d, 0x%d\n",
                     instr[pos + 1], instr[pos + 2], instr[pos + 3]);
                 pos += 4;
+                break;
+            default:
                 break;
             }
         }

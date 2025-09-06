@@ -149,173 +149,182 @@ public:
 
     void run()
     {
-        while (pointer < program.length)
+        try
         {
-            OpCode op = cast(OpCode) next();
-            int r0, r1, r2, r3;
-            final switch (op)
+            while (pointer < program.length)
             {
-            case OpCode.HALT:
-                return;
-            case OpCode.MOV:
-                // MOV R0, 0
-                // MOV 0x0, 0
-                // MOVE o valor 0 para 0x0 no endereço
-                r0 = next();
-                int value = next();
-                this.memory[r0] = value;
-                break;
-            case OpCode.ADD:
-                // ADD R0, R1, R2
-                r0 = next();
-                r1 = next();
-                r2 = next();
-                this.memory[r0] = this.memory[r1] + this.memory[r2];
-                break;
-            case OpCode.SUB:
-                // SUB R0, R1, R2
-                r0 = next();
-                r1 = next();
-                r2 = next();
-                this.memory[r0] = this.memory[r1] - this.memory[r2];
-                break;
-            case OpCode.MUL:
-                // MUL R0, R1, R2
-                r0 = next();
-                r1 = next();
-                r2 = next();
-                this.memory[r0] = this.memory[r1] * this.memory[r2];
-                break;
-            case OpCode.DIV:
-                // DIV R0, R1, R2
-                r0 = next();
-                r1 = next();
-                r2 = next();
-                this.memory[r0] = this.memory[r1] / this.memory[r2];
-                break;
-            case OpCode.STORE:
-                // STORE R0, 0..256
-                // 0..256 = addres
-                r0 = next();
-                int value = next();
-                memory[r0] = value;
-                break;
-            case OpCode.LOAD:
-                // LOAD R0, 0..256
-                // 0..256 = addres
-                r0 = next();
-                int addres = next();
-                this.memory[r0] = memory[addres];
-                break;
-            case OpCode.CALL:
-                // CALL addres
-                int callAddress = next();
-                push(cast(int) pointer);
-                pointer = cast(uint) callAddress;
-                break;
-            case OpCode.RET:
-                // RET
-                pointer = cast(uint) pop();
-                break;
-            case OpCode.JMP:
-                // JMP addres
-                int jmpAddress = next();
-                pointer = cast(uint) jmpAddress;
-                break;
-            case OpCode.PRINT:
-                // PRINT R0
-                r0 = next();
-                writeln(this.memory[r0]);
-                break;
-            case OpCode.INPUT:
-                // INPUT R0
-                r0 = next();
-                write("Input: ");
-                int value = to!int(readln().strip());
-                this.memory[r0] = value;
-                break;
-
-            case OpCode.STR_ALLOC:
-                // STR_ALLOC R0, string_constant_id
-                // Aloca string do pool de constantes e armazena endereço em R0
-                r0 = next();
-                int stringId = next();
-                if (stringId >= 0 && stringId < stringConstants.length)
+                OpCode op = cast(OpCode) next();
+                int r0, r1, r2, r3;
+                final switch (op)
                 {
-                    int addr = allocString(stringConstants[stringId]);
+                case OpCode.HALT:
+                    return;
+                case OpCode.MOV:
+                    // MOV R0, 0
+                    // MOV 0x0, 0
+                    // MOVE o valor 0 para 0x0 no endereço
+                    r0 = next();
+                    int value = next();
+                    this.memory[r0] = value;
+                    break;
+                case OpCode.ADD:
+                    // ADD R0, R1, R2
+                    r0 = next();
+                    r1 = next();
+                    r2 = next();
+                    this.memory[r0] = this.memory[r1] + this.memory[r2];
+                    break;
+                case OpCode.SUB:
+                    // SUB R0, R1, R2
+                    r0 = next();
+                    r1 = next();
+                    r2 = next();
+                    this.memory[r0] = this.memory[r1] - this.memory[r2];
+                    break;
+                case OpCode.MUL:
+                    // MUL R0, R1, R2
+                    r0 = next();
+                    r1 = next();
+                    r2 = next();
+                    this.memory[r0] = this.memory[r1] * this.memory[r2];
+                    break;
+                case OpCode.DIV:
+                    // DIV R0, R1, R2
+                    r0 = next();
+                    r1 = next();
+                    r2 = next();
+                    this.memory[r0] = this.memory[r1] / this.memory[r2];
+                    break;
+                case OpCode.STORE:
+                    // STORE R0, 0..256
+                    // 0..256 = addres
+                    r0 = next();
+                    int value = next();
+                    memory[r0] = value;
+                    break;
+                case OpCode.LOAD:
+                    // LOAD R0, 0..256
+                    // 0..256 = addres
+                    r0 = next();
+                    int addres = next();
+                    this.memory[r0] = memory[addres];
+                    break;
+                case OpCode.CALL:
+                    // CALL addres
+                    int callAddress = next();
+                    push(cast(int) pointer);
+                    pointer = cast(uint) callAddress;
+                    break;
+                case OpCode.RET:
+                    // RET
+                    pointer = cast(uint) pop();
+                    break;
+                case OpCode.JMP:
+                    // JMP addres
+                    int jmpAddress = next();
+                    pointer = cast(uint) jmpAddress;
+                    break;
+                case OpCode.PRINT:
+                    // PRINT R0
+                    r0 = next();
+                    write(this.memory[r0]);
+                    break;
+                case OpCode.INPUT:
+                    // INPUT R0
+                    r0 = next();
+                    int value = to!int(readln().strip());
+                    this.memory[r0] = value;
+                    break;
+
+                case OpCode.STR_ALLOC:
+                    // STR_ALLOC R0, string_constant_id
+                    // Aloca string do pool de constantes e armazena endereço em R0
+                    r0 = next();
+                    int stringId = next();
+                    if (stringId >= 0 && stringId < stringConstants.length)
+                    {
+                        int addr = allocString(stringConstants[stringId]);
+                        this.memory[r0] = addr;
+                    }
+                    else
+                    {
+                        this.memory[r0] = -1;
+                    }
+                    break;
+
+                case OpCode.STR_LOAD:
+                    // STR_LOAD R0, string_constant_id
+                    // Carrega endereço da string constante em R0
+                    r0 = next();
+                    int constId = next();
+                    if (constId >= 0 && constId < stringConstants.length)
+                    {
+                        // Para simplificar, aloca uma nova cópia
+                        int addr = allocString(stringConstants[constId]);
+                        this.memory[r0] = addr;
+                    }
+                    break;
+
+                case OpCode.STR_CONCAT:
+                    // STR_CONCAT R0, R1, R2
+                    // Concatena strings em R1 e R2, resultado em R0
+                    r0 = next();
+                    r1 = next();
+                    r2 = next();
+                    string str1 = readString(this.memory[r1]);
+                    string str2 = readString(this.memory[r2]);
+                    int resultAddr = allocString(str1 ~ str2);
+                    this.memory[r0] = resultAddr;
+                    break;
+
+                case OpCode.STR_LEN:
+                    // STR_LEN R0, R1
+                    // Obtém comprimento da string em R1, resultado em R0
+                    r0 = next();
+                    r1 = next();
+                    string str = readString(this.memory[r1]);
+                    this.memory[r0] = cast(int) str.length;
+                    break;
+
+                case OpCode.STR_CMP:
+                    // STR_CMP R0, R1, R2
+                    // Compara strings em R1 e R2, resultado em R0 (0=iguais, <0 ou >0)
+                    r0 = next();
+                    r1 = next();
+                    r2 = next();
+                    string str1 = readString(this.memory[r1]);
+                    string str2 = readString(this.memory[r2]);
+                    import std.algorithm : cmp;
+
+                    this.memory[r0] = cmp(str1, str2);
+                    break;
+
+                case OpCode.STR_PRINT:
+                    // STR_PRINT R0
+                    // Imprime string cujo endereço está em R0
+                    r0 = next();
+                    string str = readString(this.memory[r0]);
+                    write(str);
+                    break;
+
+                case OpCode.STR_INPUT:
+                    // STR_INPUT R0
+                    // Lê string do usuário e armazena endereço em R0
+                    r0 = next();
+                    string input = readln().strip();
+                    int addr = allocString(input);
                     this.memory[r0] = addr;
+                    break;
                 }
-                else
-                {
-                    this.memory[r0] = -1;
-                }
-                break;
-
-            case OpCode.STR_LOAD:
-                // STR_LOAD R0, string_constant_id
-                // Carrega endereço da string constante em R0
-                r0 = next();
-                int constId = next();
-                if (constId >= 0 && constId < stringConstants.length)
-                {
-                    // Para simplificar, aloca uma nova cópia
-                    int addr = allocString(stringConstants[constId]);
-                    this.memory[r0] = addr;
-                }
-                break;
-
-            case OpCode.STR_CONCAT:
-                // STR_CONCAT R0, R1, R2
-                // Concatena strings em R1 e R2, resultado em R0
-                r0 = next();
-                r1 = next();
-                r2 = next();
-                string str1 = readString(this.memory[r1]);
-                string str2 = readString(this.memory[r2]);
-                int resultAddr = allocString(str1 ~ str2);
-                this.memory[r0] = resultAddr;
-                break;
-
-            case OpCode.STR_LEN:
-                // STR_LEN R0, R1
-                // Obtém comprimento da string em R1, resultado em R0
-                r0 = next();
-                r1 = next();
-                string str = readString(this.memory[r1]);
-                this.memory[r0] = cast(int) str.length;
-                break;
-
-            case OpCode.STR_CMP:
-                // STR_CMP R0, R1, R2
-                // Compara strings em R1 e R2, resultado em R0 (0=iguais, <0 ou >0)
-                r0 = next();
-                r1 = next();
-                r2 = next();
-                string str1 = readString(this.memory[r1]);
-                string str2 = readString(this.memory[r2]);
-                import std.algorithm : cmp;
-
-                this.memory[r0] = cmp(str1, str2);
-                break;
-
-            case OpCode.STR_PRINT:
-                // STR_PRINT R0
-                // Imprime string cujo endereço está em R0
-                r0 = next();
-                string str = readString(this.memory[r0]);
-                writeln(str);
-                break;
-
-            case OpCode.STR_INPUT:
-                // STR_INPUT R0
-                // Lê string do usuário e armazena endereço em R0
-                r0 = next();
-                write("Input string: ");
-                string input = readln().strip();
-                int addr = allocString(input);
-                this.memory[r0] = addr;
-                break;
             }
+        }
+        catch (Exception e)
+        {
+            writeln("An internal error occurred on the virtual machine!");
+            writeln("File: ", e.file);
+            writeln("Message: ", e.msg);
+            writeln("Line: ", e.line);
+            return;
         }
     }
 

@@ -28,7 +28,14 @@ struct CompilerOptions
     string inputFile = null;
 }
 
-int[] compileSource(string file, string source, FiberMemory mem, bool debugMode = false)
+struct CompilationResult
+{
+    int[] byteCode;
+    int[MEMORY_BUFFER] vmMemory;
+    string[] stringConstants;
+}
+
+CompilationResult compileSource(string file, string source, FiberMemory mem, bool debugMode = false)
 {
     Lexer lexer = new Lexer(source, file);
     Token[] tokens = lexer.tokenize();
@@ -49,30 +56,64 @@ int[] compileSource(string file, string source, FiberMemory mem, bool debugMode 
     Semantic semantic = new Semantic(mem);
     Program newProg = cast(Program) semantic.analyzeNode(prog);
 
-    Builder codegen = new Builder(mem, semantic.functionsMemory);
+    if (debugMode)
+    {
+        mem.debugMemory();
+        writeln();
+    }
+
+    Builder codegen = new Builder(mem, semantic);
     codegen.generate(newProg);
     int[] byteCode = codegen.build();
 
+    // Preparar dados para VM
+    CompilationResult result;
+    result.byteCode = byteCode;
+
+    // Exportar memória e strings
+    mem.exportToVM(result.vmMemory, result.stringConstants);
+
     if (debugMode)
     {
-        writeln("Debug info:");
-        mem.debugMemory();
-        writeln();
+        writeln("=== Debug Info ===");
         writeln("Disassemble:");
         writeln(codegen.disassemble());
         writeln("Byte code: ", byteCode);
         writeln();
+
+        writeln("=== String Constants ===");
+        foreach (i, str; result.stringConstants)
+        {
+            writefln("%d: \"%s\"", i, str);
+        }
+        writeln();
+
+        writeln("=== VM Memory (non-zero values) ===");
+        foreach (i, val; result.vmMemory)
+        {
+            if (val != 0)
+            {
+                writefln("mem[%d] = %d", i, val);
+            }
+        }
+        writeln();
     }
 
-    return byteCode;
+    return result;
 }
 
-void executeProgram(int[] byteCode, int[] memBuffer, bool debugMode = false)
+void executeProgram(int[] byteCode, int[512] memBuffer, string[] stringConstants, bool debugMode = false)
 {
     FiberVM vm = new FiberVM(byteCode, memBuffer);
+
+    foreach (str; stringConstants)
+    {
+        vm.addStringLiteral(str);
+    }
+
     if (debugMode)
     {
-        writeln("Executing program...");
+        writeln("Executing program with ", stringConstants.length, " string constants...");
     }
     vm.run();
 }
@@ -81,6 +122,7 @@ struct SerializedProgram
 {
     int[] byteCode;
     int[MEMORY_BUFFER] memory;
+    string[] stringConstants;
 }
 
 string[] compressZeros(int[] data)
@@ -153,32 +195,47 @@ int[] decompressZeros(string[] compressedData, int expectedSize)
     return result;
 }
 
-void saveProgram(int[] byteCode, int[] memory, string filename)
+void saveProgram(int[] byteCode, int[512] memory, string[] stringConstants, string filename)
 {
     string[] output;
 
+    // Cabeçalho
     output ~= "FIBERBC";
     output ~= to!string(byteCode.length);
-    output ~= to!string(MEMORY_BUFFER); // memory size is fixed
+    output ~= to!string(MEMORY_BUFFER);
+    output ~= to!string(stringConstants.length);
 
+    // ByteCode comprimido
     string[] compressedByteCode = compressZeros(byteCode);
     output ~= compressedByteCode;
 
     output ~= "MEMORY";
 
+    // Memória comprimida
     string[] compressedMemory = compressZeros(memory[]);
     output ~= compressedMemory;
+
+    // Strings (nova seção)
+    output ~= "STRINGS";
+    foreach (str; stringConstants)
+    {
+        // Escapar strings para serialização
+        string escaped = str.replace("\\", "\\\\").replace(" ", "\\s").replace("\n", "\\n");
+        output ~= escaped;
+    }
 
     string fileContent = output.join(" ");
     fileWrite(filename, fileContent);
 
     // Estatísticas de compressão
-    int originalSize = 3 + cast(int) byteCode.length + MEMORY_BUFFER;
+    int originalSize = 4 + cast(int) byteCode.length + MEMORY_BUFFER + cast(
+        int) stringConstants.length;
     int compressedSize = cast(int) output.length;
     double ratio = cast(double) compressedSize / originalSize * 100.0;
 
     writeln("Program saved to: ", filename);
     writefln("Compression: %d -> %d tokens (%.1f%%)", originalSize, compressedSize, ratio);
+    writefln("Includes %d string constants", stringConstants.length);
 }
 
 SerializedProgram loadProgram(string filename)
@@ -187,60 +244,82 @@ SerializedProgram loadProgram(string filename)
     string content = readText(filename);
     string[] parts = content.strip().split(" ");
 
-    if (parts.length < 4 || parts[0] != "FIBERBC")
-    {
+    if (parts.length < 5 || parts[0] != "FIBERBC")
         throw new Exception("Invalid bytecode file format");
-    }
 
     int bytecodeSize = to!int(parts[1]);
     int memorySize = to!int(parts[2]);
+    int stringCount = to!int(parts[3]);
 
     if (memorySize != MEMORY_BUFFER)
-    {
         throw new Exception("Memory size mismatch");
-    }
 
     int memoryIndex = -1;
-    for (int i = 3; i < parts.length; i++)
+    int stringsIndex = -1;
+
+    for (int i = 4; i < parts.length; i++)
     {
-        if (parts[i] == "MEMORY")
-        {
+        if (parts[i] == "MEMORY" && memoryIndex == -1)
             memoryIndex = i;
+        else if (parts[i] == "STRINGS" && stringsIndex == -1)
+        {
+            stringsIndex = i;
             break;
         }
     }
 
     if (memoryIndex == -1)
-    {
         throw new Exception("MEMORY separator not found");
-    }
 
-    string[] compressedByteCode = parts[3 .. memoryIndex];
+    if (stringCount > 0 && stringsIndex == -1)
+        throw new Exception("STRINGS separator not found but stringCount > 0");
+
+    string[] compressedByteCode = parts[4 .. memoryIndex];
     int[] decompressedByteCode = decompressZeros(compressedByteCode, bytecodeSize);
 
     if (decompressedByteCode.length != bytecodeSize)
-    {
-        throw new Exception("Bytecode decompression failed: expected " ~
-                to!string(
-                    bytecodeSize) ~ " got " ~
-                to!string(decompressedByteCode.length));
-    }
+        throw new Exception("Bytecode decompression failed");
 
-    string[] compressedMemory = parts[memoryIndex + 1 .. $];
+    string[] compressedMemory;
+    if (stringsIndex != -1)
+        compressedMemory = parts[memoryIndex + 1 .. stringsIndex];
+    else
+        compressedMemory = parts[memoryIndex + 1 .. $];
+
     int[] decompressedMemory = decompressZeros(compressedMemory, memorySize);
 
     if (decompressedMemory.length != memorySize)
+        throw new Exception("Memory decompression failed");
+
+    string[] stringConstants;
+    if (stringsIndex != -1 && stringCount > 0)
     {
-        throw new Exception("Memory decompression failed: expected " ~
-                to!string(
-                    memorySize) ~ " got " ~
-                to!string(decompressedMemory.length));
+        int stringsEnd = stringsIndex + 1 + stringCount;
+        if (stringsEnd > parts.length)
+            throw new Exception(format(
+                    "Not enough strings in file. Expected '%d', but only '%d' available",
+                    stringCount, parts.length - stringsIndex - 1));
+
+        string[] rawStrings = parts[stringsIndex + 1 .. stringsEnd];
+
+        if (rawStrings.length != stringCount)
+            throw new Exception(
+                "String count mismatch. Expected {stringCount}, got {rawStrings.length}");
+
+        foreach (rawStr; rawStrings)
+        {
+            string unescaped = rawStr.replace("\\s", " ").replace("\\n", "\n")
+                .replace("\\\\", "\\");
+            stringConstants ~= unescaped;
+        }
     }
 
     program.byteCode = decompressedByteCode;
-    program.memory[] = decompressedMemory[0 .. MEMORY_BUFFER];
 
-    writeln("Program loaded and decompressed successfully");
+    for (int i = 0; i < MEMORY_BUFFER && i < decompressedMemory.length; i++)
+        program.memory[i] = decompressedMemory[i];
+
+    program.stringConstants = stringConstants;
     return program;
 }
 
@@ -326,7 +405,8 @@ void main(string[] args)
                 vmTimer.start();
             }
 
-            executeProgram(program.byteCode, program.memory, options.debugMode);
+            executeProgram(program.byteCode, program.memory, program.stringConstants, options
+                    .debugMode);
 
             if (options.showStats)
             {
@@ -344,7 +424,8 @@ void main(string[] args)
             }
 
             string source = readText(options.inputFile);
-            int[] byteCode = compileSource(options.inputFile, source, mem, options.debugMode);
+            CompilationResult result = compileSource(options.inputFile, source, mem, options
+                    .debugMode);
 
             if (options.showStats)
             {
@@ -353,7 +434,8 @@ void main(string[] args)
 
             if (options.outputFile !is null)
             {
-                saveProgram(byteCode, mem.memory, options.outputFile);
+                saveProgram(result.byteCode, result.vmMemory, result.stringConstants, options
+                        .outputFile);
 
                 if (options.showStats)
                 {
@@ -370,7 +452,8 @@ void main(string[] args)
                 vmTimer.start();
             }
 
-            executeProgram(byteCode, mem.memory, options.debugMode);
+            executeProgram(result.byteCode, result.vmMemory, result.stringConstants, options
+                    .debugMode);
 
             if (options.showStats)
             {
@@ -384,6 +467,12 @@ void main(string[] args)
     }
     catch (Exception e)
     {
-        writefln("ERROR: %s", e.msg);
+        writeln(e);
+        writeln("ERROR: ", e.msg);
+        if (options.debugMode)
+        {
+            writeln("Stack trace:");
+            writeln(e.info);
+        }
     }
 }

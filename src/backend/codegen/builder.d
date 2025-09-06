@@ -7,7 +7,7 @@ import std.format;
 import std.string;
 import backend.codegen.api;
 import middle.memory.memory;
-import middle.semantic : FnMemoryAlloc;
+import middle.semantic;
 import frontend.parser.ast;
 
 class Builder
@@ -15,7 +15,7 @@ class Builder
 private:
     FiberMemory mem;
     FiberBuilder api;
-    FnMemoryAlloc[string] functionsMemory;
+    Semantic semantic;
     string functionName;
 
     int getAddr(Node node)
@@ -24,10 +24,6 @@ private:
         {
         case NodeKind.Identifier:
             string id = node.value.get!string;
-            // writeln("ID ", id);
-            // writeln("CONTEXT ", this.mem.getCurrentContext());
-            // writeln("POINTER ", this.mem.getContextInfoCurrent());
-            // writeln("POINTER MEMORY ", mem.getContextInfoCurrent().pointers);
             return this.mem.getContextInfoCurrent().pointers[id];
         case NodeKind.IntLiteral:
             return node.value.get!int;
@@ -37,14 +33,75 @@ private:
         }
     }
 
+    // Novo método para verificar se uma variável é string
+    bool isStringVariable(string varName)
+    {
+        try
+        {
+            auto ctx = mem.getContextInfoCurrent();
+            if (varName in ctx.pointers)
+            {
+                return mem.getVariableType(varName) == DataType.STRING_REF;
+            }
+        }
+        catch (Exception e)
+        {
+            // Se der erro, assume que é inteiro
+        }
+        return false;
+    }
+
+    // Método para obter string de uma variável para geração de código
+    string getStringValue(string varName)
+    {
+        try
+        {
+            return mem.getStringValue(varName);
+        }
+        catch (Exception e)
+        {
+            return "";
+        }
+    }
+
     void generateMainSection(MainSection node)
     {
         mem.loadContext("global");
         this.api.label("main");
+
+        // Primeiro, gerar carregamento de strings inicializadas
+        generateStringInitializations(node.body);
+
+        // Depois gerar o resto das instruções
         for (long i; i < node.body.length; i++)
         {
             this.generate(node.body[i]);
         }
+    }
+
+    // Novo método para gerar carregamento de strings
+    void generateStringInitializations(Node[] nodes)
+    {
+        foreach (node; nodes)
+        {
+            if (node.kind == NodeKind.VariableDeclaration)
+            {
+                auto varDecl = cast(VariableDeclaration) node;
+                if (varDecl.type == "string" && varDecl.initialized)
+                {
+                    generateStringLoad(varDecl);
+                }
+            }
+        }
+    }
+
+    void generateStringLoad(VariableDeclaration varDecl)
+    {
+        string stringValue = getStringValue(varDecl.name);
+        int stringId = mem.addStringToHeap(stringValue);
+
+        // STR_LOAD address, string_id
+        this.api.strLoad(varDecl.address, stringId);
     }
 
     void generateProgram(Program node)
@@ -57,16 +114,17 @@ private:
 
     void generateFnDeclaration(FnDeclaration node)
     {
-        // TODO: corrigir isso
-        mem.loadContext("ctx_0");
-        functionName = node.name;
+        string ctx = mem.getCurrentContext();
+        mem.loadContext(semantic.functionsContext[node.name]);
+        this.functionName = node.name;
         this.api.label(node.name);
+        generateStringInitializations(node.body);
         for (long i; i < node.body.length; i++)
         {
             this.generate(node.body[i]);
         }
-        functionName = "";
-        mem.loadContext("global");
+        this.functionName = "";
+        mem.loadContext(ctx);
     }
 
     void generateInstruction(Instruction node)
@@ -75,8 +133,10 @@ private:
         switch (instr)
         {
         case "print":
-            int addr = this.getAddr(node.args[0]);
-            this.api.print(addr);
+            generatePrintInstruction(node);
+            break;
+        case "input":
+            generateInputInstruction(node);
             break;
         case "store":
             int target = this.getAddr(node.args[0]);
@@ -94,12 +154,22 @@ private:
             int y = this.getAddr(node.args[2]);
             this.api.add(target, x, y);
             break;
+        case "sconc":
+            int target = this.getAddr(node.args[0]);
+            int x = this.getAddr(node.args[1]);
+            int y = this.getAddr(node.args[2]);
+            this.api.strConcat(target, x, y);
+            break;
         case "call":
             CallFn n = cast(CallFn) node.args[0];
-            // carrega os argumentos
-            FnMemoryAlloc fn = functionsMemory[n.name];
+            FnMemoryAlloc fn = semantic.functionsMemory[n.name];
             for (long i; i < fn.callArgs.length; i++)
             {
+                if (n.args[i].type == "string")
+                {
+                    api.strLoad(fn.fnArgs[i], fn.callArgs[i]);
+                    continue;
+                }
                 api.load(fn.fnArgs[i], fn.callArgs[i]);
             }
             this.api.call(n.name);
@@ -108,8 +178,9 @@ private:
             this.api.halt();
             break;
         case "ret":
-            FnMemoryAlloc fn = functionsMemory[functionName];
-            api.load(fn.callRet, fn.fnRet);
+            FnMemoryAlloc fn = semantic.functionsMemory[functionName];
+            if (fn.callRet != -1)
+                api.load(fn.callRet, fn.fnRet);
             this.api.ret();
             break;
         default:
@@ -117,10 +188,48 @@ private:
         }
     }
 
-public:
-    this(FiberMemory mem, FnMemoryAlloc[string] memory)
+    void generatePrintInstruction(Instruction node)
     {
-        this.functionsMemory = memory;
+        if (node.args.length == 0)
+            throw new Exception("'print' instruction needs one argument");
+
+        int addr = this.getAddr(node.args[0]);
+        if (node.args[0].kind == NodeKind.Identifier)
+        {
+            string varName = node.args[0].value.get!string;
+            if (isStringVariable(varName))
+            {
+                this.api.strPrint(addr);
+                return;
+            }
+        }
+
+        this.api.print(addr);
+    }
+
+    void generateInputInstruction(Instruction node)
+    {
+        if (node.args.length == 0)
+            throw new Exception("'input' instruction needs one argument.");
+
+        int addr = this.getAddr(node.args[0]);
+        if (node.args[0].kind == NodeKind.Identifier)
+        {
+            string varName = node.args[0].value.get!string;
+            if (isStringVariable(varName))
+            {
+                this.api.strInput(addr);
+                return;
+            }
+        }
+
+        this.api.input(addr);
+    }
+
+public:
+    this(FiberMemory mem, Semantic semantic)
+    {
+        this.semantic = semantic;
         this.mem = mem;
         this.api = new FiberBuilder();
     }
@@ -170,5 +279,18 @@ public:
     int getCurrentAddress()
     {
         return this.api.getCurrentAddress();
+    }
+
+    // Método para finalizar e exportar dados para VM
+    void finalize(ref int[512] vmMemory, ref string[] stringConstants)
+    {
+        mem.exportToVM(vmMemory, stringConstants);
+    }
+
+    // Método de debug
+    void debugMemoryState()
+    {
+        writeln("=== Builder Debug - Memory State ===");
+        mem.debugMemory();
     }
 }

@@ -13,6 +13,8 @@ enum TokenKind
     Ret,
     Call,
     Fn,
+    Input,
+    StrConcat,
 
     Identifier, // id
 

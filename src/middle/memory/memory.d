@@ -4,7 +4,22 @@ import std.conv;
 import std.stdio;
 import std.algorithm;
 import std.array;
+import std.variant;
 import config;
+
+// Enum para tipos de dados
+enum DataType
+{
+    INT,
+    STRING_REF // Referência para string no heap
+}
+
+// Estrutura para armazenar valor com tipo
+struct TypedValue
+{
+    DataType type;
+    int value; // Para int direto, ou índice da string no heap
+}
 
 // Memória por contexto
 struct ContextInfo
@@ -13,6 +28,14 @@ struct ContextInfo
     int startOffset; // onde o contexto começa na memória
     int allocatedSize; // quantos slots foram alocados
     int usedSlots; // quantos slots estão sendo usados
+
+    // Pool de strings para este contexto
+    string[] stringHeap;
+    int[string] stringIndexMap; // string literal -> index no heap
+
+    // Pool de doubles para este contexto
+    double[] doubleHeap;
+    int[double] doubleIndexMap; // double literal -> index no heap
 }
 
 class FiberMemory
@@ -27,7 +50,7 @@ private:
     string[] contextStack;
 public:
     ContextInfo[string] contexts;
-    int[] memory = new int[MEMORY_BUFFER];
+    TypedValue[] memory = new TypedValue[MEMORY_BUFFER]; // Agora armazena valores tipados
 
     this()
     {
@@ -35,6 +58,7 @@ public:
         for (size_t i = 0; i < MEMORY_BUFFER; i++)
         {
             occupied[i] = false;
+            memory[i] = TypedValue(DataType.INT, 0);
         }
 
         currentContext = "global";
@@ -77,7 +101,9 @@ public:
             (int[string]).init, // pointers vazios
             startPos, // offset inicial
             slotsNeeded, // tamanho alocado
-            0
+            0, // slots usados
+            [], // string heap vazio
+            (int[string]).init
         );
 
         return true;
@@ -85,13 +111,11 @@ public:
 
     ContextInfo getContextInfoCurrent()
     {
-        // TODO: validações de erro
         if (currentContext !in contexts)
         {
             // TODO: tratar essa porra, lançar uma exceção talvez
+            throw new Exception("Contexto não encontrado!");
         }
-
-        // Salva contexto atual na stack
 
         return this.contexts[currentContext];
     }
@@ -137,7 +161,7 @@ public:
         for (int i = ctx.startOffset; i < ctx.startOffset + ctx.allocatedSize; i++)
         {
             occupied[i] = false;
-            memory[i] = 0;
+            memory[i] = TypedValue(DataType.INT, 0);
         }
 
         // Remove o contexto
@@ -146,7 +170,30 @@ public:
         return true;
     }
 
+    // Método original para alocar inteiros
     int alloca(string var, int value)
+    {
+        return allocaTyped(var, TypedValue(DataType.INT, value));
+    }
+
+    // Novo método para alocar strings
+    int allocaString(string var, string value)
+    {
+        if (currentContext !in contexts)
+        {
+            return -1;
+        }
+
+        auto ctx = &contexts[currentContext];
+
+        // Adiciona string ao heap e obtém índice
+        int stringIndex = addStringToHeap(value);
+
+        return allocaTyped(var, TypedValue(DataType.STRING_REF, stringIndex));
+    }
+
+    // Método interno para alocação tipada
+    private int allocaTyped(string var, TypedValue typedValue)
     {
         if (currentContext !in contexts)
         {
@@ -187,7 +234,7 @@ public:
             // Se não está sendo usado no contexto atual, pode usar
             if (!slotUsedInThisContext)
             {
-                memory[i] = value;
+                memory[i] = typedValue;
                 ctx.pointers[var] = i;
                 ctx.usedSlots++;
                 return i;
@@ -195,6 +242,48 @@ public:
         }
 
         return -1; // não encontrou espaço livre
+    }
+
+    // Adiciona string ao heap do contexto atual
+    int addStringToHeap(string str)
+    {
+        if (currentContext !in contexts)
+        {
+            return -1;
+        }
+
+        auto ctx = &contexts[currentContext];
+
+        // Se a string já existe, retorna o índice existente
+        if (str in ctx.stringIndexMap)
+        {
+            return ctx.stringIndexMap[str];
+        }
+
+        // Adiciona nova string
+        int newIndex = cast(int) ctx.stringHeap.length;
+        ctx.stringHeap ~= str;
+        ctx.stringIndexMap[str] = newIndex;
+
+        return newIndex;
+    }
+
+    // Obtém string do heap
+    string getStringFromHeap(int index)
+    {
+        if (currentContext !in contexts)
+        {
+            return "";
+        }
+
+        auto ctx = &contexts[currentContext];
+
+        if (index < 0 || index >= ctx.stringHeap.length)
+        {
+            return "";
+        }
+
+        return ctx.stringHeap[index];
     }
 
     bool free(string var)
@@ -214,7 +303,7 @@ public:
         int indice = ctx.pointers[var];
 
         // limpa o valor
-        memory[indice] = 0;
+        memory[indice] = TypedValue(DataType.INT, 0);
 
         // remove do mapeamento do contexto
         ctx.pointers.remove(var);
@@ -223,7 +312,7 @@ public:
         return true;
     }
 
-    int* getPointer(string var)
+    TypedValue* getTypedPointer(string var)
     {
         if (currentContext !in contexts)
         {
@@ -241,40 +330,70 @@ public:
         return &memory[indice];
     }
 
+    int* getPointer(string var)
+    {
+        auto typedPtr = getTypedPointer(var);
+        if (typedPtr is null)
+        {
+            return null;
+        }
+        return &(typedPtr.value);
+    }
+
     int getValue(string var)
     {
-        if (currentContext !in contexts)
+        auto typedPtr = getTypedPointer(var);
+        if (typedPtr is null || typedPtr.type != DataType.INT)
         {
             return 0;
         }
+        return typedPtr.value;
+    }
 
-        auto ctx = &contexts[currentContext];
-
-        if (var !in ctx.pointers)
+    string getStringValue(string var)
+    {
+        auto typedPtr = getTypedPointer(var);
+        if (typedPtr is null || typedPtr.type != DataType.STRING_REF)
         {
-            return 0; // ou throw exception
+            return "";
         }
+        return getStringFromHeap(typedPtr.value);
+    }
 
-        int indice = ctx.pointers[var];
-        return memory[indice];
+    DataType getVariableType(string var)
+    {
+        auto typedPtr = getTypedPointer(var);
+        if (typedPtr is null)
+        {
+            return DataType.INT; // default
+        }
+        return typedPtr.type;
     }
 
     bool setValue(string var, int newValue)
     {
-        if (currentContext !in contexts)
+        auto typedPtr = getTypedPointer(var);
+        if (typedPtr is null)
         {
             return false;
         }
 
-        auto ctx = &contexts[currentContext];
+        typedPtr.type = DataType.INT;
+        typedPtr.value = newValue;
+        return true;
+    }
 
-        if (var !in ctx.pointers)
+    bool setStringValue(string var, string newValue)
+    {
+        auto typedPtr = getTypedPointer(var);
+        if (typedPtr is null)
         {
             return false;
         }
 
-        int indice = ctx.pointers[var];
-        memory[indice] = newValue;
+        int stringIndex = addStringToHeap(newValue);
+        typedPtr.type = DataType.STRING_REF;
+        typedPtr.value = stringIndex;
         return true;
     }
 
@@ -282,6 +401,56 @@ public:
     bool storeArgument(string var, int argumentValue)
     {
         return setValue(var, argumentValue) || (alloca(var, argumentValue) != -1);
+    }
+
+    void exportToVM(ref int[MEMORY_BUFFER] vmMemory, ref string[] stringConstants)
+    {
+        for (int i = 0; i < MEMORY_BUFFER; i++)
+        {
+            vmMemory[i] = 0;
+        }
+        stringConstants = [];
+
+        int[string] globalStringMap;
+
+        globalStringMap[""] = 0;
+        stringConstants ~= "";
+
+        foreach (ctxId, ctx; contexts)
+        {
+            foreach (str; ctx.stringHeap)
+            {
+                if (str !in globalStringMap)
+                {
+                    globalStringMap[str] = cast(int) stringConstants.length;
+                    stringConstants ~= str;
+                }
+            }
+        }
+
+        foreach (ctxId, ctx; contexts)
+        {
+            foreach (var, addr; ctx.pointers)
+            {
+                if (addr >= 0 && addr < MEMORY_BUFFER)
+                {
+                    if (memory[addr].type == DataType.STRING_REF)
+                    {
+                        int heapIndex = memory[addr].value;
+                        string str = "";
+
+                        if (heapIndex >= 0 && heapIndex < ctx.stringHeap.length)
+                            str = ctx.stringHeap[heapIndex];
+
+                        vmMemory[addr] = globalStringMap[str];
+                    }
+                    else
+                    {
+                        vmMemory[addr] = memory[addr].value;
+                    }
+                }
+            }
+        }
     }
 
     // Helpers
@@ -321,8 +490,23 @@ public:
                     .startOffset, ")");
             foreach (var, indice; ctx.pointers)
             {
-                int currentValue = memory[indice];
-                writeln("  Var: ", var, " -> Index: ", indice, " -> Value: ", currentValue);
+                TypedValue currentValue = memory[indice];
+                if (currentValue.type == DataType.INT)
+                {
+                    writeln("  Var: ", var, " -> Index: ", indice, " -> Value: ", currentValue.value, " (int)");
+                }
+                else
+                {
+                    string strValue = getStringFromHeap(currentValue.value);
+                    writeln("  Var: ", var, " -> Index: ", indice, " -> Value: \"", strValue,
+                        "\" (string, heap index: ", currentValue.value, ")");
+                }
+            }
+
+            // Mostra heap de strings
+            if (ctx.stringHeap.length > 0)
+            {
+                writeln("  String Heap: ", ctx.stringHeap);
             }
         }
 

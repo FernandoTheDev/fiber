@@ -12,7 +12,7 @@ import frontend.parser.ast;
 struct FnMemoryAlloc
 {
     int[] callArgs;
-    int callRet;
+    int callRet = -1;
     int[] fnArgs;
     int fnRet;
 }
@@ -23,6 +23,7 @@ private:
     FiberMemory mem;
 public:
     FnMemoryAlloc[string] functionsMemory;
+    string[string] functionsContext;
 
     this(FiberMemory mem)
     {
@@ -58,8 +59,11 @@ public:
         if (name == "call")
         {
             CallFn callFn = cast(CallFn) analyzeNode(node.args[0]); // fn
-            Identifier callRet = cast(Identifier) analyzeNode(node.args[1]); // $0, x, y
-            functionsMemory[callFn.name].callRet = callRet.address;
+            if (node.args.length == 2)
+            {
+                Identifier callRet = cast(Identifier) analyzeNode(node.args[1]); // $0, x, y
+                functionsMemory[callFn.name].callRet = callRet.address;
+            }
         }
         else
         {
@@ -75,6 +79,7 @@ public:
     {
         if (node.name !in functionsMemory)
             functionsMemory[node.name] = FnMemoryAlloc();
+
         foreach (CallArg arg; node.args)
         {
             // TODO: validar isso
@@ -84,15 +89,29 @@ public:
         return node;
     }
 
+    int allocaMemoryToType(string arg, string type)
+    {
+        switch (type)
+        {
+        case "string":
+            return mem.allocaString(arg, "");
+        case "int":
+            return mem.alloca(arg, 0);
+        default:
+            throw new Exception(format("Unknow type '%s'", type));
+        }
+    }
+
     FnDeclaration analyzeFnDeclaration(FnDeclaration node)
     {
         string ctx = mem.getCurrentContext();
         string newCtx = mem.createContext();
+        functionsContext[node.name] = newCtx;
         mem.loadContext(newCtx);
         for (long i; i < node.args.length; i++)
         {
             auto arg = node.args[i];
-            auto pointer = mem.alloca(arg.name, 0);
+            int pointer = this.allocaMemoryToType(arg.name, arg.type);
             functionsMemory[node.name].fnArgs ~= pointer;
         }
         for (long i; i < node.body.length; i++)
@@ -104,8 +123,11 @@ public:
                 body;
                 if (instr.value.get!string == "ret")
                 {
-                    Identifier fnRet = cast(Identifier) analyzeNode(instr.args[0]);
-                    functionsMemory[node.name].fnRet = fnRet.address;
+                    if (instr.args.length == 1)
+                    {
+                        Identifier fnRet = cast(Identifier) analyzeNode(instr.args[0]);
+                        functionsMemory[node.name].fnRet = fnRet.address;
+                    }
                 }
             }
             node.body[i] = this.analyzeNode(body);
@@ -122,13 +144,77 @@ public:
 
     VariableDeclaration analyzeVarDeclaration(VariableDeclaration node)
     {
-        int value = 0;
+        int addr;
+
         if (node.initialized)
-            value = this.analyzeNode(node.value).value.get!int;
-        int addr = this.mem.alloca(node.name, value);
+        {
+            Node analyzedValue = this.analyzeNode(node.value);
+
+            // Verifica o tipo do valor e chama o método apropriado
+            if (analyzedValue.value.type() == typeid(string) ||
+                analyzedValue.value.type() == typeid(immutable(char)[]))
+            {
+                string strValue = analyzedValue.value.get!string;
+                // Remove as aspas se existirem
+                if (strValue.length >= 2 && strValue[0] == '"' && strValue[$ - 1] == '"')
+                {
+                    strValue = strValue[1 .. $ - 1];
+                }
+                addr = this.mem.allocaString(node.name, strValue);
+            }
+            else if (analyzedValue.value.type() == typeid(int))
+            {
+                int intValue = analyzedValue.value.get!int;
+                addr = this.mem.alloca(node.name, intValue);
+            }
+            else
+            {
+                // Tenta converter para int como fallback
+                try
+                {
+                    int intValue = analyzedValue.value.get!int;
+                    addr = this.mem.alloca(node.name, intValue);
+                }
+                catch (Exception e)
+                {
+                    // Se não conseguir converter, trata como string
+                    string strValue = analyzedValue.value.get!string;
+                    if (strValue.length >= 2 && strValue[0] == '"' && strValue[$ - 1] == '"')
+                    {
+                        strValue = strValue[1 .. $ - 1];
+                    }
+                    addr = this.mem.allocaString(node.name, strValue);
+                }
+            }
+        }
+        else
+        {
+            addr = this.allocaMemoryToType(node.name, node.type);
+        }
+
         node.address = addr;
         return node;
     }
+
+    // Método auxiliar para determinar se uma instrução precisa trabalhar com string
+    bool isStringOperation(Instruction instr, string varName)
+    {
+        if (varName in mem.getContextInfoCurrent().pointers)
+        {
+            return mem.getVariableType(varName) == DataType.STRING_REF;
+        }
+        return false;
+    }
+
+    // VariableDeclaration analyzeVarDeclaration(VariableDeclaration node)
+    // {
+    //     int value = 0;
+    //     if (node.initialized)
+    //         value = this.analyzeNode(node.value).value.get!int;
+    //     int addr = this.mem.alloca(node.name, value);
+    //     node.address = addr;
+    //     return node;
+    // }
 
     MainSection analyzeMainSection(MainSection node)
     {

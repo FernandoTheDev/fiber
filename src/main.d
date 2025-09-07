@@ -102,7 +102,7 @@ CompilationResult compileSource(string file, string source, FiberMemory mem, boo
     return result;
 }
 
-void executeProgram(int[] byteCode, int[MEMORY_BUFFER] memBuffer, string[] stringConstants, bool debugMode = false)
+void executeProgram(int[] byteCode, int[512] memBuffer, string[] stringConstants, bool debugMode = false)
 {
     FiberVM vm = new FiberVM(byteCode, memBuffer);
 

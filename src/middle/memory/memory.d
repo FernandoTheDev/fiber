@@ -50,7 +50,7 @@ private:
     string[] contextStack;
 public:
     ContextInfo[string] contexts;
-    TypedValue[] memory = new TypedValue[MEMORY_BUFFER];
+    TypedValue[] memory = new TypedValue[MEMORY_BUFFER]; // Agora armazena valores tipados
 
     this()
     {
@@ -65,10 +65,18 @@ public:
         nextContextId = 0;
 
         // Cria contexto global padrão
-        this.createContext("global", MEMORY_BUFFER / (2 << 1));
+        this.createContext("global", MEMORY_BUFFER / 2); // metade da memória para global
     }
 
-    bool createContext(string contextId, int slotsNeeded = 64)
+    string createContext(int slotsNeeded = 64)
+    {
+        string contextId = "ctx_" ~ nextContextId.to!string;
+        nextContextId++;
+        createContext(contextId, slotsNeeded);
+        return contextId;
+    }
+
+    bool createContext(string contextId, int slotsNeeded)
     {
         if (contextId in contexts)
         {
@@ -110,46 +118,6 @@ public:
         }
 
         return this.contexts[currentContext];
-    }
-
-    ContextInfo* getCurrentContextPtr()
-    {
-        if (currentContext !in contexts)
-        {
-            throw new Exception("Contexto não encontrado!");
-        }
-
-        return &contexts[currentContext];
-    }
-
-    ref ContextInfo getCurrentContextRef()
-    {
-        if (currentContext !in contexts)
-        {
-            throw new Exception("Contexto não encontrado!");
-        }
-
-        return contexts[currentContext];
-    }
-
-    ref ContextInfo getCurrentContextRef(string context)
-    {
-        if (context !in contexts)
-        {
-            throw new Exception("Contexto não encontrado!");
-        }
-
-        return contexts[context];
-    }
-
-    ContextInfo* getCurrentContextPtr(string context)
-    {
-        if (context !in contexts)
-        {
-            throw new Exception("Contexto não encontrado!");
-        }
-
-        return &contexts[context];
     }
 
     bool loadContext(string contextId)
@@ -551,38 +519,6 @@ public:
                 ocupadas++;
         }
         writeln("Total Positions held: ", ocupadas, "/", MEMORY_BUFFER);
-    }
-
-    bool copyStringBetweenContexts(string fromContext, string toContext, int memoryIndex)
-    {
-        if (fromContext !in contexts || toContext !in contexts)
-            return false;
-
-        auto fromCtx = &contexts[fromContext];
-        auto toCtx = &contexts[toContext];
-
-        if (memoryIndex < 0 || memoryIndex >= MEMORY_BUFFER)
-            return false;
-
-        if (memory[memoryIndex].type != DataType.STRING_REF)
-            return false;
-
-        int fromStringIndex = memory[memoryIndex].value;
-        if (fromStringIndex < 0 || fromStringIndex >= fromCtx.stringHeap.length)
-            return false;
-
-        string actualString = fromCtx.stringHeap[fromStringIndex];
-
-        // Adicionar string ao heap do contexto de destino
-        string oldContext = currentContext;
-        currentContext = toContext;
-        int newStringIndex = addStringToHeap(actualString);
-        currentContext = oldContext;
-
-        // Atualizar referência no contexto de destino
-        memory[memoryIndex].value = newStringIndex;
-
-        return true;
     }
 
     // Getters para debug/info

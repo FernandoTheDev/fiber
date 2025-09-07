@@ -167,23 +167,7 @@ private:
             {
                 if (n.args[i].type == "string")
                 {
-                    writeln("fN NAME: ", n.name);
-                    writeln("fN CONTEXT BEFORE: ", mem.getCurrentContextRef(n.name));
-
-                    writeln("Heap CALL: ", mem.getCurrentContextRef()
-                            .stringHeap[mem.memory[fn.callArgs[i]].value]);
-                    writeln("Before: ", mem.contexts[n.name]
-                            .stringHeap[mem.memory[fn.fnArgs[i]].value]);
-
-                    mem.getCurrentContextRef(n.name)
-                        .stringHeap[mem.memory[fn.fnArgs[i]].value] = mem.getCurrentContextRef()
-                        .stringHeap[mem.memory[fn.fnArgs[i]].value];
-                    writeln("After: ", mem.contexts[n.name]
-                            .stringHeap[mem.memory[fn.fnArgs[i]].value]);
-
-                    writeln("fN CONTEXT AFTER: ", mem.getCurrentContextRef(n.name));
-
-                    // api.strLoad(fn.fnArgs[i], fn.callArgs[i]);
+                    api.strLoad(fn.fnArgs[i], fn.callArgs[i]);
                     continue;
                 }
                 api.load(fn.fnArgs[i], fn.callArgs[i]);
@@ -243,7 +227,7 @@ private:
     }
 
 public:
-    this(ref FiberMemory mem, Semantic semantic)
+    this(FiberMemory mem, Semantic semantic)
     {
         this.semantic = semantic;
         this.mem = mem;

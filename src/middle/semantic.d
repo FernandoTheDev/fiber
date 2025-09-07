@@ -15,6 +15,8 @@ struct FnMemoryAlloc
     int callRet = -1;
     int[] fnArgs;
     int fnRet;
+    string[] fnArgsP;
+    string[] callArgsP;
 }
 
 class Semantic
@@ -85,6 +87,7 @@ public:
             // TODO: validar isso
             int pointerToMemory = mem.getContextInfoCurrent().pointers[arg.name];
             functionsMemory[node.name].callArgs ~= pointerToMemory;
+            functionsMemory[node.name].callArgsP ~= arg.name;
         }
         return node;
     }
@@ -105,14 +108,15 @@ public:
     FnDeclaration analyzeFnDeclaration(FnDeclaration node)
     {
         string ctx = mem.getCurrentContext();
-        string newCtx = mem.createContext();
-        functionsContext[node.name] = newCtx;
-        mem.loadContext(newCtx);
+        mem.createContext(node.name);
+        functionsContext[node.name] = node.name;
+        mem.loadContext(node.name);
         for (long i; i < node.args.length; i++)
         {
             auto arg = node.args[i];
             int pointer = this.allocaMemoryToType(arg.name, arg.type);
             functionsMemory[node.name].fnArgs ~= pointer;
+            functionsMemory[node.name].fnArgsP ~= arg.name;
         }
         for (long i; i < node.body.length; i++)
         {

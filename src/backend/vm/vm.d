@@ -260,7 +260,10 @@ public:
                     if (constId >= 0 && constId < stringConstants.length)
                     {
                         // Para simplificar, aloca uma nova cópia
+                        writeln("Copia: ", stringConstants[constId]);
+                        writeln("Copia ID: ", constId);
                         int addr = allocString(stringConstants[constId]);
+                        writeln("ADDR ALLOCATED: ", addr);
                         this.memory[r0] = addr;
                     }
                     break;
@@ -303,8 +306,10 @@ public:
                     // STR_PRINT R0
                     // Imprime string cujo endereço está em R0
                     r0 = next();
+                    writeln("STR PRINT: ", this.memory[r0]);
+                    writeln("STR ADDR PRINT: ", r0);
                     string str = readString(this.memory[r0]);
-                    write(str);
+                    write("STR: ", str);
                     break;
 
                 case OpCode.STR_INPUT:

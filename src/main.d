@@ -2,6 +2,7 @@ module main;
 
 import std.stdio;
 import std.array;
+import std.algorithm;
 import std.file;
 import std.getopt;
 import std.path;
@@ -17,6 +18,7 @@ import middle.memory.memory;
 import backend.codegen.builder;
 import backend.vm.vm;
 import config;
+import bin_system;
 
 alias fileWrite = std.file.write;
 
@@ -26,6 +28,7 @@ struct CompilerOptions
     bool showStats = false;
     string outputFile = null;
     string inputFile = null;
+    bool binFile = false;
 }
 
 struct CompilationResult
@@ -181,41 +184,35 @@ int[] decompressZeros(string[] compressedData, int expectedSize)
             // Token de compressão Fn
             int zeroCount = to!int(token[1 .. $]);
             for (int i = 0; i < zeroCount; i++)
-            {
                 result ~= 0;
-            }
         }
         else
-        {
-            // Valor normal
             result ~= to!int(token);
-        }
     }
 
     return result;
 }
 
-void saveProgram(int[] byteCode, int[512] memory, string[] stringConstants, string filename)
+void saveProgram(int[] byteCode, int[MEMORY_BUFFER] memory, string[] stringConstants, string filename)
 {
     string[] output;
 
-    // Cabeçalho
-    output ~= "FIBERBC";
+    // Header
+    output ~= "Fiber";
     output ~= to!string(byteCode.length);
     output ~= to!string(MEMORY_BUFFER);
     output ~= to!string(stringConstants.length);
 
-    // ByteCode comprimido
+    // ByteCode
     string[] compressedByteCode = compressZeros(byteCode);
     output ~= compressedByteCode;
 
+    // Memória section
     output ~= "MEMORY";
-
-    // Memória comprimida
     string[] compressedMemory = compressZeros(memory[]);
     output ~= compressedMemory;
 
-    // Strings (nova seção)
+    // Strings section
     output ~= "STRINGS";
     foreach (str; stringConstants)
     {
@@ -227,7 +224,6 @@ void saveProgram(int[] byteCode, int[512] memory, string[] stringConstants, stri
     string fileContent = output.join(" ");
     fileWrite(filename, fileContent);
 
-    // Estatísticas de compressão
     int originalSize = 4 + cast(int) byteCode.length + MEMORY_BUFFER + cast(
         int) stringConstants.length;
     int compressedSize = cast(int) output.length;
@@ -235,6 +231,56 @@ void saveProgram(int[] byteCode, int[512] memory, string[] stringConstants, stri
 
     writeln("Program saved to: ", filename);
     writefln("Compression: %d -> %d tokens (%.1f%%)", originalSize, compressedSize, ratio);
+    writefln("Includes %d string constants", stringConstants.length);
+}
+
+void saveProgramBin(int[] byteCode, int[MEMORY_BUFFER] memory, string[] stringConstants, string filename)
+{
+    ubyte[] bytes;
+
+    // Header
+    addTLVString(bytes, "Fiber");
+
+    // Program len
+    addTLVNumeric(bytes, cast(uint) byteCode.length);
+
+    // Memory len
+    addTLVNumeric(bytes, cast(uint) memory.length);
+
+    // Constants strings len
+    addTLVNumeric(bytes, cast(uint) stringConstants.length);
+
+    // FernandoDev
+    addTLVBytes(bytes, [70, 101, 114, 110, 97, 110, 100, 111, 68, 101, 118]);
+
+    // ByteCode
+    addTLVBytes(bytes, cast(ubyte[]) byteCode);
+
+    // Fiber
+    addTLVBytes(bytes, [70, 105, 98, 101, 114]);
+
+    // Memory section
+    addTLVSectionHeader(bytes, BinDataType.MEMORY);
+    // addTLVBytes(bytes, cast(ubyte[]) compressZeros(memory));
+    string[] compressedMemory = compressZeros(memory[]);
+    string serializedMemory = compressedMemory.join(" ");
+    addTLVString(bytes, serializedMemory);
+
+    // Strings section
+    addTLVSectionHeader(bytes, BinDataType.STRINGS);
+    foreach (str; stringConstants)
+    {
+        string escaped = str.replace("\\", "\\\\").replace(" ", "\\s")
+            .replace("\n", "\\n").replace("\t", "\\t");
+        addTLVString(bytes, escaped);
+    }
+
+    File f = File(filename, "wb");
+    f.rawWrite(bytes);
+    f.close();
+
+    writeln("Program saved to: ", filename);
+    writefln("Binary size: %d bytes", bytes.length);
     writefln("Includes %d string constants", stringConstants.length);
 }
 
@@ -323,6 +369,125 @@ SerializedProgram loadProgram(string filename)
     return program;
 }
 
+SerializedProgram loadProgramBin(string filename)
+{
+    SerializedProgram program;
+    File f = File(filename, "rb");
+
+    ubyte[1] typeBuffer;
+    ubyte[4] lengthBuffer;
+
+    // Header "Fiber"
+    readTLVItem(f, typeBuffer, lengthBuffer);
+    if (cast(BinDataType) typeBuffer[0] != BinDataType.STRING_DATA)
+        throw new Exception("Expected header as STRING_DATA");
+    if (readTLVString(f, lengthBuffer) != "Fiber")
+        throw new Exception("Invalid header - expected 'Fiber'");
+
+    // Program Length
+    readTLVItem(f, typeBuffer, lengthBuffer);
+    if (cast(BinDataType) typeBuffer[0] != BinDataType.NUMERIC)
+        throw new Exception("Expected program length as NUMERIC");
+    int programLen = readTLVInt(f, lengthBuffer);
+
+    // Memory Length  
+    readTLVItem(f, typeBuffer, lengthBuffer);
+    if (cast(BinDataType) typeBuffer[0] != BinDataType.NUMERIC)
+        throw new Exception("Expected memory length as NUMERIC");
+    int memoryLen = readTLVInt(f, lengthBuffer);
+
+    if (memoryLen != MEMORY_BUFFER)
+        throw new Exception("Memory size mismatch");
+
+    // String Constants Length
+    readTLVItem(f, typeBuffer, lengthBuffer);
+    if (cast(BinDataType) typeBuffer[0] != BinDataType.NUMERIC)
+        throw new Exception("Expected strings count as NUMERIC");
+    int constantsStringsLen = readTLVInt(f, lengthBuffer);
+
+    // Magic Header (FernandoDev)
+    readTLVItem(f, typeBuffer, lengthBuffer);
+    if (cast(BinDataType) typeBuffer[0] != BinDataType.BYTES_SEQUENCE)
+        throw new Exception("Expected magic header as BYTES_SEQUENCE");
+    ubyte[] magicHeader = readTLVBytes(f, lengthBuffer);
+    if (cast(string) magicHeader != "FernandoDev")
+        throw new Exception("Invalid header found in binary file!");
+
+    // Program ByteCode
+    readTLVItem(f, typeBuffer, lengthBuffer);
+    if (cast(BinDataType) typeBuffer[0] != BinDataType.BYTES_SEQUENCE)
+        throw new Exception("Expected program bytecode as BYTES_SEQUENCE");
+    ubyte[] programBytes = readTLVBytes(f, lengthBuffer);
+
+    // Converte string comprimida para array de ints
+    int[] decompressedProgram = cast(int[]) programBytes;
+
+    if (decompressedProgram.length != programLen)
+        throw new Exception("Program decompression failed");
+    program.byteCode = decompressedProgram;
+
+    // Magic Footer (Fiber)
+    readTLVItem(f, typeBuffer, lengthBuffer);
+    if (cast(BinDataType) typeBuffer[0] != BinDataType.BYTES_SEQUENCE)
+        throw new Exception("Expected magic footer as BYTES_SEQUENCE");
+    ubyte[] magicFooter = readTLVBytes(f, lengthBuffer);
+    // Validação opcional: cast(string) magicFooter deveria ser "Fiber"
+
+    // MEMORY Section Header
+    readTLVItem(f, typeBuffer, lengthBuffer);
+    if (cast(BinDataType) typeBuffer[0] != BinDataType.SECTION_HEADER)
+        throw new Exception("Expected MEMORY section header");
+    ubyte[] memorySectionData = readTLVBytes(f, lengthBuffer);
+    if (memorySectionData.length != 1 || cast(BinDataType) memorySectionData[0] != BinDataType
+        .MEMORY)
+        throw new Exception("Expected MEMORY section marker");
+
+    // Memory Data
+    readTLVItem(f, typeBuffer, lengthBuffer);
+    if (cast(BinDataType) typeBuffer[0] != BinDataType.STRING_DATA)
+        throw new Exception("Expected serialized memory as STRING_DATA");
+    string serializedMemory = readTLVString(f, lengthBuffer);
+
+    string[] compressedMemory = serializedMemory.split(" ");
+    int[] decompressedMemory = decompressZeros(compressedMemory, memoryLen);
+
+    if (decompressedMemory.length != memoryLen)
+        throw new Exception("Memory decompression failed");
+
+    for (int i = 0; i < MEMORY_BUFFER; i++)
+        program.memory[i] = decompressedMemory[i];
+
+    // STRINGS Section Header
+    readTLVItem(f, typeBuffer, lengthBuffer);
+    if (cast(BinDataType) typeBuffer[0] != BinDataType.SECTION_HEADER)
+        throw new Exception("Expected STRINGS section header");
+    ubyte[] stringsSectionData = readTLVBytes(f, lengthBuffer);
+    if (stringsSectionData.length != 1 || cast(BinDataType) stringsSectionData[0] != BinDataType
+        .STRINGS)
+        throw new Exception("Expected STRINGS section marker");
+
+    // String Constants
+    string[] stringConstants;
+    for (int i = 0; i < constantsStringsLen; i++)
+    {
+        readTLVItem(f, typeBuffer, lengthBuffer);
+        if (cast(BinDataType) typeBuffer[0] != BinDataType.STRING_DATA)
+            throw new Exception("Expected string constant as STRING_DATA");
+
+        string escapedStr = readTLVString(f, lengthBuffer);
+        string unescaped = escapedStr.replace("\\s", " ")
+            .replace("\\n", "\n")
+            .replace("\\t", "\t")
+            .replace("\\\\", "\\");
+        stringConstants ~= unescaped;
+    }
+
+    program.stringConstants = stringConstants;
+    f.close();
+
+    return program;
+}
+
 string generateOutputFilename(string inputFile, string extension)
 {
     return setExtension(inputFile, extension);
@@ -336,7 +501,8 @@ void printUsage(string programName)
     writeln("  -d, --debug          Enable debug mode (show tokens, AST, bytecode)");
     writeln("  -s, --stats          Show execution statistics");
     writeln("  -o, --output=FILE    Save bytecode to specified file");
-    writeln("  -h, --help          Show this help message");
+    writeln("  -h, --help           Show this help message");
+    writeln("  -b, --bin            Save the bytecode in binary format");
     writeln();
     writeln("Supported file types:");
     writeln("  .fir    Source files (compiled and executed)");
@@ -349,6 +515,108 @@ void printUsage(string programName)
     writeln("  ", programName, " -d -s program.fir              # Debug mode with stats");
 }
 
+void extensionBc(ref CompilerOptions options, ref StopWatch vmTimer, ref StopWatch totalTimer)
+{
+    if (options.debugMode)
+        writeln("Loading program file: ", options.inputFile);
+
+    SerializedProgram program = loadProgram(options.inputFile);
+
+    if (options.showStats)
+        vmTimer.start();
+
+    executeProgram(program.byteCode, program.memory, program.stringConstants, options
+            .debugMode);
+
+    if (options.showStats)
+    {
+        vmTimer.stop();
+        totalTimer.stop();
+        writefln("VM execution time: %.4f ms", cast(double) vmTimer.peek.total!"usecs" / 1000.0);
+        writefln("Total time: %.4f ms", cast(double) totalTimer.peek.total!"usecs" / 1000.0);
+    }
+}
+
+void extensionFir(ref CompilerOptions options, FiberMemory mem, ref StopWatch vmTimer, ref StopWatch totalTimer,
+    ref StopWatch compileTimer)
+{
+    if (options.showStats)
+    {
+        compileTimer.start();
+    }
+
+    string source = readText(options.inputFile);
+    CompilationResult result = compileSource(options.inputFile, source, mem, options
+            .debugMode);
+
+    if (options.showStats)
+    {
+        compileTimer.stop();
+    }
+
+    if (options.outputFile !is null)
+    {
+        if (options.binFile)
+            saveProgramBin(result.byteCode, result.vmMemory, result.stringConstants, options
+                    .outputFile);
+        else
+            saveProgram(result.byteCode, result.vmMemory, result.stringConstants, options
+                    .outputFile);
+
+        if (options.showStats)
+        {
+            totalTimer.stop();
+            writefln("Compilation time: %.4f ms", cast(double) compileTimer.peek.total!"usecs" / 1000.0);
+            writefln("Total time: %.4f ms", cast(double)(
+                    totalTimer.peek.total!"usecs" / 1000.0));
+        }
+        return;
+    }
+
+    if (options.showStats)
+    {
+        vmTimer.start();
+    }
+
+    executeProgram(result.byteCode, result.vmMemory, result.stringConstants, options
+            .debugMode);
+
+    if (options.showStats)
+    {
+        vmTimer.stop();
+        totalTimer.stop();
+        writefln("Compilation time: %.4f ms", cast(double) compileTimer.peek.total!"usecs" / 1000.0);
+        writefln("VM execution time: %.4f ms", cast(double) vmTimer.peek.total!"usecs" / 1000.0);
+        writefln("Total time: %.4f ms", cast(double) totalTimer.peek.total!"usecs" / 1000.0);
+    }
+}
+
+void extensionFbin(ref CompilerOptions options, ref StopWatch vmTimer, ref StopWatch totalTimer)
+{
+    if (options.debugMode)
+    {
+        writeln("Loading program file: ", options.inputFile);
+    }
+
+    SerializedProgram program = loadProgramBin(options.inputFile);
+
+    if (options.showStats)
+    {
+        vmTimer.start();
+    }
+
+    executeProgram(program.byteCode, program.memory, program.stringConstants, options
+            .debugMode);
+
+    if (options.showStats)
+    {
+        vmTimer.stop();
+        totalTimer.stop();
+        writefln("VM execution time: %.4f ms", cast(double) vmTimer.peek.total!"usecs" / 1000.0);
+        writefln("Total time: %.4f ms", cast(double) totalTimer.peek.total!"usecs" / 1000.0);
+    }
+}
+
 void main(string[] args)
 {
     CompilerOptions options;
@@ -359,6 +627,7 @@ void main(string[] args)
             "debug|d", "Enable debug mode", &options.debugMode,
             "stats|s", "Show execution statistics", &options.showStats,
             "output|o", "Output bytecode file", &options.outputFile,
+            "bin|b", "Bin file", &options.binFile,
         );
 
         if (helpInfo.helpWanted)
@@ -387,84 +656,18 @@ void main(string[] args)
         StopWatch totalTimer, compileTimer, vmTimer;
 
         if (options.showStats)
-        {
             totalTimer.start();
-        }
 
         if (extension(options.inputFile) == ".bc")
-        {
-            if (options.debugMode)
-            {
-                writeln("Loading program file: ", options.inputFile);
-            }
+            extensionBc(options, vmTimer, totalTimer);
 
-            SerializedProgram program = loadProgram(options.inputFile);
+        if (extension(options.inputFile) == ".fir")
+            extensionFir(options, mem, vmTimer, totalTimer, compileTimer);
 
-            if (options.showStats)
-            {
-                vmTimer.start();
-            }
-
-            executeProgram(program.byteCode, program.memory, program.stringConstants, options
-                    .debugMode);
-
-            if (options.showStats)
-            {
-                vmTimer.stop();
-                totalTimer.stop();
-                writefln("VM execution time: %.4f ms", cast(double) vmTimer.peek.total!"usecs" / 1000.0);
-                writefln("Total time: %.4f ms", cast(double) totalTimer.peek.total!"usecs" / 1000.0);
-            }
-        }
-        else
-        {
-            if (options.showStats)
-            {
-                compileTimer.start();
-            }
-
-            string source = readText(options.inputFile);
-            CompilationResult result = compileSource(options.inputFile, source, mem, options
-                    .debugMode);
-
-            if (options.showStats)
-            {
-                compileTimer.stop();
-            }
-
-            if (options.outputFile !is null)
-            {
-                saveProgram(result.byteCode, result.vmMemory, result.stringConstants, options
-                        .outputFile);
-
-                if (options.showStats)
-                {
-                    totalTimer.stop();
-                    writefln("Compilation time: %.4f ms", cast(double) compileTimer.peek.total!"usecs" / 1000.0);
-                    writefln("Total time: %.4f ms", cast(double)(
-                            totalTimer.peek.total!"usecs" / 1000.0));
-                }
-                return;
-            }
-
-            if (options.showStats)
-            {
-                vmTimer.start();
-            }
-
-            executeProgram(result.byteCode, result.vmMemory, result.stringConstants, options
-                    .debugMode);
-
-            if (options.showStats)
-            {
-                vmTimer.stop();
-                totalTimer.stop();
-                writefln("Compilation time: %.4f ms", cast(double) compileTimer.peek.total!"usecs" / 1000.0);
-                writefln("VM execution time: %.4f ms", cast(double) vmTimer.peek.total!"usecs" / 1000.0);
-                writefln("Total time: %.4f ms", cast(double) totalTimer.peek.total!"usecs" / 1000.0);
-            }
-        }
+        if (extension(options.inputFile) == ".bin")
+            extensionFbin(options, vmTimer, totalTimer);
     }
+
     catch (Exception e)
     {
         writeln(e);

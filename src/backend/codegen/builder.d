@@ -107,9 +107,7 @@ private:
     void generateProgram(Program node)
     {
         for (long i; i < node.body.length; i++)
-        {
             this.generate(node.body[i]);
-        }
     }
 
     void generateFnDeclaration(FnDeclaration node)
@@ -120,9 +118,7 @@ private:
         this.api.label(node.name);
         generateStringInitializations(node.body);
         for (long i; i < node.body.length; i++)
-        {
             this.generate(node.body[i]);
-        }
         this.functionName = "";
         mem.loadContext(ctx);
     }
@@ -167,6 +163,21 @@ private:
             {
                 if (n.args[i].type == "string")
                 {
+                    // writeln("fN NAME: ", n.name);
+                    // writeln("fN CONTEXT BEFORE: ", mem.getCurrentContextRef(n.name));
+
+                    // writeln("Heap CALL: ", mem.getCurrentContextRef()
+                    //         .stringHeap[mem.memory[fn.callArgs[i]].value]);
+                    // writeln("Before: ", mem.contexts[n.name]
+                    //         .stringHeap[mem.memory[fn.fnArgs[i]].value]);
+
+                    // mem.getCurrentContextRef(n.name)
+                    //     .stringHeap[mem.memory[fn.fnArgs[i]].value] = mem.getCurrentContextRef()
+                    //     .stringHeap[mem.memory[fn.fnArgs[i]].value];
+                    // writeln("After: ", mem.contexts[n.name]
+                    //         .stringHeap[mem.memory[fn.fnArgs[i]].value]);
+
+                    // writeln("fN CONTEXT AFTER: ", mem.getCurrentContextRef(n.name));
                     api.strLoad(fn.fnArgs[i], fn.callArgs[i]);
                     continue;
                 }
@@ -227,7 +238,7 @@ private:
     }
 
 public:
-    this(FiberMemory mem, Semantic semantic)
+    this(ref FiberMemory mem, Semantic semantic)
     {
         this.semantic = semantic;
         this.mem = mem;

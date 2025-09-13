@@ -445,9 +445,6 @@ public:
 
         int[string] globalStringMap;
 
-        globalStringMap[""] = 0;
-        stringConstants ~= "";
-
         foreach (ctxId, ctx; contexts)
         {
             foreach (str; ctx.stringHeap)
